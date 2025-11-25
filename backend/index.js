@@ -12,6 +12,7 @@ const {
   createMint,
   mintTo,
   getAccount,
+  getMint,
   TOKEN_PROGRAM_ID,
 } = require("@solana/spl-token");
 const anchor = require("@coral-xyz/anchor");
@@ -45,6 +46,7 @@ const programId = new PublicKey(
 const shareTokenMint = new PublicKey(
   process.env.SHARE_TOKEN_MINT || "4tbkoExLHa9j62vCshizth9HdQjvyDpSeMnto2DmnMh7"
 );
+const ADMIN_KEY = process.env.ADMIN_KEY;
 
 // --- 4. LOAD THE ANCHOR PROGRAM ---
 // Create the "Anchor Provider"
@@ -189,6 +191,29 @@ let program;
 function startServer() {
 
 // ===============================================
+// --- ADMIN SECURITY MIDDLEWARE ---
+// ===============================================
+
+/**
+ * Middleware to require admin authentication for company endpoints
+ * Checks for x-admin-key header matching ADMIN_KEY environment variable
+ */
+function requireAdmin(req, res, next) {
+  const adminKey = req.headers["x-admin-key"];
+  
+  if (!ADMIN_KEY) {
+    console.error("❌ ADMIN_KEY environment variable is not set");
+    return res.status(500).json({ error: "Server configuration error: ADMIN_KEY not set" });
+  }
+  
+  if (!adminKey || adminKey !== ADMIN_KEY) {
+    return res.status(403).json({ error: "Forbidden: Admin authentication required" });
+  }
+  
+  next();
+}
+
+// ===============================================
 // --- KYC ENDPOINTS ---
 // ===============================================
 
@@ -243,7 +268,7 @@ app.get("/api/kyc/status/:sessionId", async (req, res) => {
  * @route POST /api/company/create-token
  * @desc Create a new share token for the company
  */
-app.post("/api/company/create-token", async (req, res) => {
+app.post("/api/company/create-token", requireAdmin, async (req, res) => {
   try {
     console.log("Creating company's 'Share Token' on", cluster, "...");
     const mint = await createMint(
@@ -269,7 +294,7 @@ app.post("/api/company/create-token", async (req, res) => {
  * @desc Mint share tokens to a verified shareholder
  * @body { "shareholderWallet": "...", "amount": 1 }
  */
-app.post("/api/company/mint-share", async (req, res) => {
+app.post("/api/company/mint-share", requireAdmin, async (req, res) => {
   try {
     const { shareholderWallet, amount = 1 } = req.body;
     if (!shareholderWallet) {
@@ -310,7 +335,7 @@ app.post("/api/company/mint-share", async (req, res) => {
  * @desc Create a new vote (Ballot Box)
  * @body { "title": "..." }
  */
-app.post("/api/company/create-vote", async (req, res) => {
+app.post("/api/company/create-vote", requireAdmin, async (req, res) => {
   try {
     const { title } = req.body;
     if (!title) {
@@ -352,6 +377,10 @@ app.post("/api/company/create-vote", async (req, res) => {
  */
 app.get("/api/company/votes", async (req, res) => {
   try {
+    // Fetch total supply for participation analytics
+    const mintInfo = await getMint(connection, shareTokenMint);
+    const totalSupply = Number(mintInfo.supply);
+
     // Fetch votes filtered by authority (only votes created by this backend)
     const voteAccounts = await program.account.voteAccount.all([
       {
@@ -362,16 +391,32 @@ app.get("/api/company/votes", async (req, res) => {
       }
     ]);
 
-    // Map results to clean JSON structure
-    const votes = voteAccounts.map(({ publicKey, account }) => ({
-      voteAccount: publicKey.toBase58(),
-      title: account.title,
-      votesFor: account.votesFor.toString(),
-      votesAgainst: account.votesAgainst.toString(),
-      isActive: account.isActive,
-      authority: account.authority.toBase58(),
-      tokenMint: account.tokenMint.toBase58(),
-    }));
+    // Map results to clean JSON structure with participation analytics
+    const votes = voteAccounts.map(({ publicKey, account }) => {
+      const votesFor = Number(account.votesFor.toString());
+      const votesAgainst = Number(account.votesAgainst.toString());
+      const totalVotesCast = votesFor + votesAgainst;
+      
+      // Calculate participation rate (handle division by zero)
+      let participationRate = "0.00%";
+      if (totalSupply > 0) {
+        const participationPct = (totalVotesCast / totalSupply) * 100;
+        participationRate = participationPct.toFixed(2) + "%";
+      }
+
+      return {
+        voteAccount: publicKey.toBase58(),
+        title: account.title,
+        votesFor: account.votesFor.toString(),
+        votesAgainst: account.votesAgainst.toString(),
+        totalVotes: totalVotesCast,
+        participationRate: participationRate,
+        totalSupply: totalSupply,
+        isActive: account.isActive,
+        authority: account.authority.toBase58(),
+        tokenMint: account.tokenMint.toBase58(),
+      };
+    });
 
     res.json({ votes });
   } catch (error) {
@@ -414,7 +459,7 @@ app.get("/api/company/vote/:voteAccount", async (req, res) => {
  * @desc Close a vote (stop accepting new votes)
  * @body { "voteAccount": "..." }
  */
-app.post("/api/company/close-vote", async (req, res) => {
+app.post("/api/company/close-vote", requireAdmin, async (req, res) => {
   try {
     const { voteAccount } = req.body;
     if (!voteAccount) {
@@ -497,6 +542,82 @@ app.get("/api/user/vote/:voteAccount", async (req, res) => {
   } catch (error) {
     console.error("Failed to fetch vote:", error);
     res.status(500).json({ error: "Failed to fetch vote", details: error.message });
+  }
+});
+
+/**
+ * @route POST /api/user/claim-share
+ * @desc Allow a verified user to mint their share token after KYC approval
+ * @body { "sessionId": "...", "walletAddress": "..." }
+ */
+app.post("/api/user/claim-share", async (req, res) => {
+  try {
+    const { sessionId, walletAddress } = req.body;
+    
+    // Validate required fields
+    if (!sessionId) {
+      return res.status(400).json({ error: "sessionId is required" });
+    }
+    if (!walletAddress) {
+      return res.status(400).json({ error: "walletAddress is required" });
+    }
+
+    // Check KYC verification status
+    console.log(`Checking KYC verification status for session: ${sessionId}`);
+    const verificationStatus = await checkVerificationStatus(sessionId);
+    
+    // Check if verification is approved
+    if (verificationStatus !== "Approved") {
+      return res.status(403).json({ 
+        error: "KYC verification not complete", 
+        status: verificationStatus,
+        message: "Your KYC verification must be approved before claiming shares"
+      });
+    }
+
+    console.log(`✅ KYC verified for wallet: ${walletAddress}`);
+
+    // Check if user already has tokens (prevent double-minting)
+    const shareholderPublicKey = new PublicKey(walletAddress);
+    const shareholderTokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      authorityWallet,
+      shareTokenMint,
+      shareholderPublicKey
+    );
+    
+    const tokenAccountInfo = await getAccount(connection, shareholderTokenAccount.address);
+    if (tokenAccountInfo.amount > 0n) {
+      return res.status(400).json({ 
+        error: "Share tokens already minted for this wallet",
+        tokenAccount: shareholderTokenAccount.address.toBase58(),
+        existingAmount: tokenAccountInfo.amount.toString()
+      });
+    }
+
+    // Mint 1 share token to the verified user
+    console.log(`Minting 1 share token to ${walletAddress}...`);
+    await mintTo(
+      connection,
+      authorityWallet,
+      shareTokenMint,
+      shareholderTokenAccount.address,
+      authorityWallet,
+      1
+    );
+
+    res.json({
+      message: "Share token claimed successfully",
+      tokenAccount: shareholderTokenAccount.address.toBase58(),
+      amount: 1,
+      walletAddress: walletAddress,
+    });
+  } catch (error) {
+    console.error("Claim share error:", error);
+    res.status(500).json({ 
+      error: "Failed to claim share token", 
+      details: error.message 
+    });
   }
 });
 

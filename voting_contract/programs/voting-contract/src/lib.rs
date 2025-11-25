@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{burn, Burn, Mint, Token, TokenAccount},
+    token::{Mint, Token, TokenAccount},
 };
 
 // This is the main "entrypoint" of our program.
@@ -45,18 +45,11 @@ pub mod voting_contract {
             VoteError::InvalidTokenMint
         );
 
-        // --- Burn 1 "Share Token" ---
-        // This is the "weighted voting" part. 1 token = 1 vote.
-        // We take and destroy their token to prove they voted.
-        let cpi_context = CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            Burn {
-                mint: ctx.accounts.token_mint.to_account_info(),
-                from: ctx.accounts.voter_token_account.to_account_info(),
-                authority: ctx.accounts.voter.to_account_info(),
-            },
+        // Security Check 3: Does the voter have at least 1 token?
+        require!(
+            ctx.accounts.voter_token_account.amount >= 1,
+            VoteError::NotEnoughTokens
         );
-        burn(cpi_context, 1)?; // Burn 1 token
 
         // --- Record the Vote ---
         if vote_direction == true {
@@ -155,10 +148,7 @@ pub struct CastVote<'info> {
 
     // 4. The Voter's Token Account
     // This is the wallet that *holds* their 1 "share token".
-    #[account(
-        mut,
-        constraint = voter_token_account.amount >= 1 // Must have at least 1 token
-    )]
+    #[account(mut)]
     pub voter_token_account: Account<'info, TokenAccount>,
 
     // 5. The Mint of the "Share Token"
@@ -192,4 +182,6 @@ pub enum VoteError {
     VoteIsClosed,
     #[msg("The token mint provided does not match the one required for this vote.")]
     InvalidTokenMint,
+    #[msg("You do not have enough tokens to vote.")]
+    NotEnoughTokens,
 }
