@@ -185,9 +185,6 @@ let program;
   }
 })();
 
-// In-memory store for vote accounts (in production, use a database)
-const voteAccountsStore = new Map();
-
 // Function to start server after program is loaded
 function startServer() {
 
@@ -314,14 +311,6 @@ app.post("/api/company/create-vote", async (req, res) => {
       .signers([authorityWallet, voteAccount])
       .rpc();
 
-    // Store vote account info
-    voteAccountsStore.set(voteAccount.publicKey.toBase58(), {
-      voteAccount: voteAccount.publicKey.toBase58(),
-      title,
-      createdAt: new Date().toISOString(),
-      authority: authorityWallet.publicKey.toBase58(),
-    });
-
     console.log("✅ New Vote Created! Transaction signature:", tx);
     res.json({
       message: "Vote created successfully",
@@ -340,7 +329,27 @@ app.post("/api/company/create-vote", async (req, res) => {
  */
 app.get("/api/company/votes", async (req, res) => {
   try {
-    const votes = Array.from(voteAccountsStore.values());
+    // Fetch votes filtered by authority (only votes created by this backend)
+    const voteAccounts = await program.account.voteAccount.all([
+      {
+        memcmp: {
+          offset: 8, // Skip 8-byte discriminator
+          bytes: authorityWallet.publicKey.toBase58()
+        }
+      }
+    ]);
+
+    // Map results to clean JSON structure
+    const votes = voteAccounts.map(({ publicKey, account }) => ({
+      voteAccount: publicKey.toBase58(),
+      title: account.title,
+      votesFor: account.votesFor.toString(),
+      votesAgainst: account.votesAgainst.toString(),
+      isActive: account.isActive,
+      authority: account.authority.toBase58(),
+      tokenMint: account.tokenMint.toBase58(),
+    }));
+
     res.json({ votes });
   } catch (error) {
     console.error("Failed to fetch votes:", error);
@@ -419,28 +428,21 @@ app.post("/api/company/close-vote", async (req, res) => {
  */
 app.get("/api/user/votes", async (req, res) => {
   try {
-    const votes = Array.from(voteAccountsStore.values());
-    // Fetch live data from blockchain for each vote
-    const votesWithData = await Promise.all(
-      votes.map(async (vote) => {
-        try {
-          const voteAccountPubkey = new PublicKey(vote.voteAccount);
-          const voteAccountData = await program.account.voteAccount.fetch(
-            voteAccountPubkey
-          );
-          return {
-            ...vote,
-            isActive: voteAccountData.isActive,
-            votesFor: voteAccountData.votesFor.toString(),
-            votesAgainst: voteAccountData.votesAgainst.toString(),
-          };
-        } catch (error) {
-          console.error(`Error fetching vote ${vote.voteAccount}:`, error);
-          return vote;
-        }
-      })
-    );
-    res.json({ votes: votesWithData });
+    // Fetch all votes from blockchain (no filter)
+    const voteAccounts = await program.account.voteAccount.all();
+
+    // Map results to clean JSON structure
+    const votes = voteAccounts.map(({ publicKey, account }) => ({
+      voteAccount: publicKey.toBase58(),
+      title: account.title,
+      votesFor: account.votesFor.toString(),
+      votesAgainst: account.votesAgainst.toString(),
+      isActive: account.isActive,
+      authority: account.authority.toBase58(),
+      tokenMint: account.tokenMint.toBase58(),
+    }));
+
+    res.json({ votes });
   } catch (error) {
     console.error("Failed to fetch votes:", error);
     res.status(500).json({ error: "Failed to fetch votes" });
