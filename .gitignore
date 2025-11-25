@@ -1,0 +1,63 @@
+# Build and dependency directories
+node_modules/
+.next/
+/.next/
+out/
+build/
+target/
+.anchor/
+test-ledger/
+dist/
+*.so
+*.sbvb
+voting_contract/target/
+
+# Package managers
+.npm
+.pnpm-store
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+.pnpm-debug.log*
+
+# IDE and OS files
+.DS_Store
+*.swp
+*.bak
+*.backup
+.vscode/
+.idea/
+
+# Backend specific
+backend/.env
+backend/db.json
+backend/test-results/
+backend/playwright-report/
+
+# Frontend specific
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/tsconfig.tsbuildinfo
+
+# Global Environment & Secrets
+.env
+.env.local
+.env.*
+*.pem
+*.key
+id.json
+wallet.json
+
+# Solana / Anchor specific
+**/*.rs.bk
+.yarn/
+vendor/
+
+# Logs and test results
+*.log
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
