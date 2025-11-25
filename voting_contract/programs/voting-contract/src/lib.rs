@@ -38,14 +38,8 @@ pub mod voting_contract {
         // Security Check 1: Is this "Ballot Box" open for voting?
         require!(vote_account.is_active, VoteError::VoteIsClosed);
         
-        // Security Check 2: Does the token they are spending match the
-        // token this vote requires?
-        require!(
-            vote_account.token_mint == ctx.accounts.token_mint.key(),
-            VoteError::InvalidTokenMint
-        );
-
-        // Security Check 3: Does the voter have at least 1 token?
+        // Security Check 2: Does the voter have at least 1 token?
+        // Note: Token mint matching is now enforced via Anchor constraints in CastVote struct
         require!(
             ctx.accounts.voter_token_account.amount >= 1,
             VoteError::NotEnoughTokens
@@ -75,6 +69,77 @@ pub mod voting_contract {
         ctx.accounts.vote_account.is_active = false;
         Ok(())
     }
+
+    /// Instruction 4: Set or update a delegate
+    /// Allows a token owner to delegate their voting rights to another address.
+    pub fn set_delegate(ctx: Context<SetDelegate>, delegate_address: Pubkey) -> Result<()> {
+        let delegation = &mut ctx.accounts.delegation;
+        delegation.owner = *ctx.accounts.authority.key;
+        delegation.delegate = delegate_address;
+        delegation.mint = ctx.accounts.mint.key();
+        Ok(())
+    }
+
+    /// Instruction 5: Cast a proxy vote
+    /// Allows a delegate to vote on behalf of an owner.
+    pub fn cast_proxy_vote(ctx: Context<CastProxyVote>, vote_direction: bool) -> Result<()> {
+        let vote_account = &mut ctx.accounts.vote_account;
+        let delegation_record = &ctx.accounts.delegation_record;
+        let owner_token_account = &ctx.accounts.owner_token_account;
+        let delegate = &ctx.accounts.delegate;
+
+        // Security Check 1: Is this "Ballot Box" open for voting?
+        require!(vote_account.is_active, VoteError::VoteIsClosed);
+
+        // Security Check 2: Does the delegate match the delegation record?
+        require!(
+            delegation_record.delegate == delegate.key(),
+            VoteError::InvalidDelegate
+        );
+
+        // Security Check 3: Does the owner match the delegation record?
+        require!(
+            delegation_record.owner == owner_token_account.owner,
+            VoteError::DelegateNotAuthorized
+        );
+
+        // Security Check 4: Does the mint match the delegation record?
+        require!(
+            delegation_record.mint == vote_account.token_mint,
+            VoteError::InvalidTokenMint
+        );
+
+        // Security Check 5: Does the owner have at least 1 token?
+        require!(
+            owner_token_account.amount >= 1,
+            VoteError::NotEnoughTokens
+        );
+
+        // --- Record the Vote ---
+        if vote_direction == true {
+            vote_account.votes_for = vote_account.votes_for.checked_add(1).unwrap();
+        } else {
+            vote_account.votes_against = vote_account.votes_against.checked_add(1).unwrap();
+        }
+
+        // --- Create the VoteReceipt ---
+        // This "receipt" account proves the owner has voted on this proposal,
+        // preventing them from voting twice. The voter field is set to the owner,
+        // not the delegate, for correct attribution.
+        let receipt = &mut ctx.accounts.vote_receipt;
+        receipt.voter = owner_token_account.owner;
+        receipt.vote_account = vote_account.key();
+        receipt.voted_for = vote_direction;
+
+        Ok(())
+    }
+
+    /// Instruction 6: Revoke delegation
+    /// Allows the owner to revoke their delegation and close the account, refunding rent.
+    pub fn revoke_delegation(ctx: Context<RevokeDelegation>) -> Result<()> {
+        // The account will be closed automatically by Anchor's close constraint
+        Ok(())
+    }
 }
 
 // --- Data Structures (Accounts) ---
@@ -99,6 +164,16 @@ pub struct VoteReceipt {
     pub voter: Pubkey,         // The person who voted
     pub vote_account: Pubkey,  // The vote they voted on
     pub voted_for: bool,       // What was their vote?
+}
+
+/// Account 3: Delegation Record
+/// Stores delegation information allowing an owner to delegate voting rights to a delegate.
+/// This is a PDA seeded by [b"delegation", owner_key, mint_key]
+#[account]
+pub struct Delegation {
+    pub owner: Pubkey,    // The token owner who is delegating
+    pub delegate: Pubkey, // The delegate who can vote on behalf of the owner
+    pub mint: Pubkey,     // The token mint this delegation is for
 }
 
 // --- Account Contexts (What each instruction needs) ---
@@ -148,7 +223,13 @@ pub struct CastVote<'info> {
 
     // 4. The Voter's Token Account
     // This is the wallet that *holds* their 1 "share token".
-    #[account(mut)]
+    #[account(
+        mut,
+        // CORRECTION 1: Ensure the voter actually owns this account
+        constraint = voter_token_account.owner == voter.key(),
+        // CORRECTION 2: Ensure this account holds the CORRECT token (not a random one)
+        constraint = voter_token_account.mint == vote_account.token_mint @ VoteError::InvalidTokenMint
+    )]
     pub voter_token_account: Account<'info, TokenAccount>,
 
     // 5. The Mint of the "Share Token"
@@ -175,6 +256,96 @@ pub struct CloseVote<'info> {
     pub authority: Signer<'info>,
 }
 
+/// Context for `set_delegate`
+#[derive(Accounts)]
+pub struct SetDelegate<'info> {
+    // The delegation account (PDA)
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + 32 + 32 + 32, // 8 (discriminator) + 32 (owner) + 32 (delegate) + 32 (mint)
+        seeds = [b"delegation", authority.key().as_ref(), mint.key().as_ref()],
+        bump
+    )]
+    pub delegation: Account<'info, Delegation>,
+
+    // The owner (authority) who is delegating
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    // The token mint this delegation is for
+    pub mint: Account<'info, Mint>,
+
+    // Required Solana Programs
+    pub system_program: Program<'info, System>,
+}
+
+/// Context for `cast_proxy_vote`
+#[derive(Accounts)]
+pub struct CastProxyVote<'info> {
+    // 1. The "Ballot Box" we are voting on
+    #[account(mut)]
+    pub vote_account: Account<'info, VoteAccount>,
+
+    // 2. The delegation record (PDA)
+    #[account(
+        seeds = [b"delegation", owner_token_account.owner.as_ref(), vote_account.token_mint.as_ref()],
+        bump
+    )]
+    pub delegation_record: Account<'info, Delegation>,
+
+    // 3. The Owner's Token Account
+    // Constraint ensures the token account's mint matches the vote's token mint
+    #[account(
+        mut,
+        constraint = owner_token_account.mint == vote_account.token_mint @ VoteError::InvalidTokenMint
+    )]
+    pub owner_token_account: Account<'info, TokenAccount>,
+
+    // 4. The Delegate (signer)
+    #[account(mut)]
+    pub delegate: Signer<'info>,
+
+    // 5. The "I Voted" receipt.
+    // We create it here to prevent double-voting.
+    // Uses OWNER key, not delegate key, so owner cannot vote later if delegate already did.
+    #[account(
+        init,
+        payer = delegate,
+        space = 8 + 32 + 32 + 1, // Space for the struct
+        seeds = [b"receipt", vote_account.key().as_ref(), owner_token_account.owner.as_ref()],
+        bump
+    )]
+    pub vote_receipt: Account<'info, VoteReceipt>,
+
+    // 6. The Mint of the "Share Token"
+    pub token_mint: Account<'info, Mint>,
+
+    // 7. Required Solana Programs
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Context for `revoke_delegation`
+#[derive(Accounts)]
+pub struct RevokeDelegation<'info> {
+    // The delegation account to close (PDA)
+    #[account(
+        mut,
+        close = authority, // Close the account and send rent to authority
+        seeds = [b"delegation", authority.key().as_ref(), mint.key().as_ref()],
+        bump
+    )]
+    pub delegation: Account<'info, Delegation>,
+
+    // The owner (authority) who is revoking the delegation
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    // The token mint (needed for PDA derivation)
+    pub mint: Account<'info, Mint>,
+}
+
 // --- Custom Errors ---
 #[error_code]
 pub enum VoteError {
@@ -184,4 +355,8 @@ pub enum VoteError {
     InvalidTokenMint,
     #[msg("You do not have enough tokens to vote.")]
     NotEnoughTokens,
+    #[msg("The provided delegate does not match the delegation record.")]
+    InvalidDelegate,
+    #[msg("The delegate is not authorized to vote for this owner.")]
+    DelegateNotAuthorized,
 }

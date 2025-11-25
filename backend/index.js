@@ -18,6 +18,7 @@ const {
 const anchor = require("@coral-xyz/anchor");
 const fs = require("fs");
 const { createVerificationSession, checkVerificationStatus } = require("./kyc");
+const { addUser, getUserByWallet, getAllUsers } = require("./db");
 require("dotenv").config();
 
 // --- 1. SETUP UP THE SERVER ---
@@ -486,6 +487,69 @@ app.post("/api/company/close-vote", requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * @route GET /api/company/shareholders
+ * @desc Get all shareholders from the Real Name Registry
+ * @protected Admin only
+ */
+app.get("/api/company/shareholders", requireAdmin, async (req, res) => {
+  try {
+    const users = getAllUsers();
+    
+    const shareholders = users.map(user => ({
+      walletAddress: user.walletAddress,
+      realName: user.realName,
+      kycSessionId: user.kycSessionId,
+    }));
+
+    res.json({ shareholders });
+  } catch (error) {
+    console.error("Failed to fetch shareholders:", error);
+    res.status(500).json({ error: "Failed to fetch shareholders", details: error.message });
+  }
+});
+
+/**
+ * @route GET /api/company/vote-details/:voteAccount
+ * @desc Get vote details with real names for a specific vote account
+ * @protected Admin only
+ * @param {string} voteAccount - The vote account public key
+ */
+app.get("/api/company/vote-details/:voteAccount", requireAdmin, async (req, res) => {
+  try {
+    const { voteAccount } = req.params;
+    const voteAccountPubkey = new PublicKey(voteAccount);
+
+    // Fetch all VoteReceipt accounts for this vote account
+    // Offset: 8 (discriminator) + 32 (voter field) = 40 to reach vote_account field
+    const voteReceipts = await program.account.voteReceipt.all([
+      {
+        memcmp: {
+          offset: 40,
+          bytes: voteAccountPubkey.toBase58(),
+        },
+      },
+    ]);
+
+    // Map receipts to include real names from database
+    const voteDetails = voteReceipts.map(({ account }) => {
+      const voterWallet = account.voter.toBase58();
+      const user = getUserByWallet(voterWallet);
+      
+      return {
+        voterName: user ? user.realName : null,
+        wallet: voterWallet,
+        voteDirection: account.votedFor ? "For" : "Against",
+      };
+    });
+
+    res.json({ voteDetails });
+  } catch (error) {
+    console.error("Failed to fetch vote details:", error);
+    res.status(500).json({ error: "Failed to fetch vote details", details: error.message });
+  }
+});
+
 // ===============================================
 // --- USER ENDPOINTS ---
 // ===============================================
@@ -548,11 +612,11 @@ app.get("/api/user/vote/:voteAccount", async (req, res) => {
 /**
  * @route POST /api/user/claim-share
  * @desc Allow a verified user to mint their share token after KYC approval
- * @body { "sessionId": "...", "walletAddress": "..." }
+ * @body { "sessionId": "...", "walletAddress": "...", "realName": "..." }
  */
 app.post("/api/user/claim-share", async (req, res) => {
   try {
-    const { sessionId, walletAddress } = req.body;
+    const { sessionId, walletAddress, realName } = req.body;
     
     // Validate required fields
     if (!sessionId) {
@@ -561,21 +625,29 @@ app.post("/api/user/claim-share", async (req, res) => {
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required" });
     }
-
-    // Check KYC verification status
-    console.log(`Checking KYC verification status for session: ${sessionId}`);
-    const verificationStatus = await checkVerificationStatus(sessionId);
-    
-    // Check if verification is approved
-    if (verificationStatus !== "Approved") {
-      return res.status(403).json({ 
-        error: "KYC verification not complete", 
-        status: verificationStatus,
-        message: "Your KYC verification must be approved before claiming shares"
-      });
+    if (!realName) {
+      return res.status(400).json({ error: "realName is required" });
     }
 
-    console.log(`✅ KYC verified for wallet: ${walletAddress}`);
+    // Dev Mode: Bypass KYC verification if DEV_MODE is enabled
+    if (process.env.DEV_MODE === 'true') {
+      console.log(`🔧 DEV MODE: Bypassing KYC verification for wallet: ${walletAddress}`);
+    } else {
+      // Check KYC verification status
+      console.log(`Checking KYC verification status for session: ${sessionId}`);
+      const verificationStatus = await checkVerificationStatus(sessionId);
+      
+      // Check if verification is approved
+      if (verificationStatus !== "Approved") {
+        return res.status(403).json({ 
+          error: "KYC verification not complete", 
+          status: verificationStatus,
+          message: "Your KYC verification must be approved before claiming shares"
+        });
+      }
+
+      console.log(`✅ KYC verified for wallet: ${walletAddress}`);
+    }
 
     // Check if user already has tokens (prevent double-minting)
     const shareholderPublicKey = new PublicKey(walletAddress);
@@ -606,11 +678,17 @@ app.post("/api/user/claim-share", async (req, res) => {
       1
     );
 
+    // Save user to Real Name Registry database
+    const savedUser = addUser(walletAddress, realName, sessionId);
+    console.log(`✅ User saved to Real Name Registry: ${realName} (${walletAddress})`);
+
     res.json({
       message: "Share token claimed successfully",
       tokenAccount: shareholderTokenAccount.address.toBase58(),
       amount: 1,
       walletAddress: walletAddress,
+      realName: savedUser.realName,
+      kycSessionId: savedUser.kycSessionId,
     });
   } catch (error) {
     console.error("Claim share error:", error);
