@@ -1,30 +1,67 @@
 /**
- * KYC Verification Service (Stub)
- * For demo purposes, this returns success for any verification request.
- * In production, this would integrate with Didit API or another KYC service.
+ * KYC Verification Service - Didit API Integration
+ * Integrates with Didit API for KYC verification
  */
 
+const axios = require("axios");
+
 /**
- * Mock KYC verification
+ * Create a verification session with Didit
  * @param {string} walletAddress - The wallet address to verify
- * @param {object} userInfo - Optional user information (name, email, etc.)
- * @returns {Promise<{verified: boolean, walletAddress: string, timestamp: number}>}
+ * @returns {Promise<{url: string, session_id: string}>}
  */
-async function verifyKYC(walletAddress, userInfo = {}) {
-  // In production, this would call a real KYC service like Didit
-  // For now, we'll simulate a successful verification after a short delay
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  
+async function createVerificationSession(walletAddress) {
+  if (!process.env.DIDIT_API_KEY) {
+    throw new Error("DIDIT_API_KEY environment variable is required");
+  }
+  if (!process.env.DIDIT_WORKFLOW_ID) {
+    throw new Error("DIDIT_WORKFLOW_ID environment variable is required");
+  }
+
+  const response = await axios.post(
+    "https://verification.didit.me/v2/session/",
+    {
+      workflow_id: process.env.DIDIT_WORKFLOW_ID,
+      vendor_data: walletAddress,
+      callback: "http://localhost:3000",
+    },
+    {
+      headers: {
+        "X-Api-Key": process.env.DIDIT_API_KEY,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
   return {
-    verified: true,
-    walletAddress,
-    timestamp: Date.now(),
-    userInfo,
+    url: response.data.url,
+    session_id: response.data.id,
   };
 }
 
+/**
+ * Check the verification status of a session
+ * @param {string} sessionId - The session ID to check
+ * @returns {Promise<string>} Status (e.g., "Approved", "Declined", "In_Progress")
+ */
+async function checkVerificationStatus(sessionId) {
+  if (!process.env.DIDIT_API_KEY) {
+    throw new Error("DIDIT_API_KEY environment variable is required");
+  }
+
+  const response = await axios.get(
+    `https://verification.didit.me/v2/session/${sessionId}`,
+    {
+      headers: {
+        "X-Api-Key": process.env.DIDIT_API_KEY,
+      },
+    }
+  );
+
+  return response.data.status;
+}
+
 module.exports = {
-  verifyKYC,
+  createVerificationSession,
+  checkVerificationStatus,
 };
-
-

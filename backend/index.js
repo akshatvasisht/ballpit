@@ -16,7 +16,7 @@ const {
 } = require("@solana/spl-token");
 const anchor = require("@coral-xyz/anchor");
 const fs = require("fs");
-const { verifyKYC } = require("./kyc");
+const { createVerificationSession, checkVerificationStatus } = require("./kyc");
 require("dotenv").config();
 
 // --- 1. SETUP UP THE SERVER ---
@@ -194,21 +194,44 @@ function startServer() {
 
 /**
  * @route POST /api/kyc/verify
- * @desc Verify a user's KYC status
- * @body { "walletAddress": "...", "userInfo": {...} }
+ * @desc Create a verification session with Didit
+ * @body { "walletAddress": "..." }
  */
 app.post("/api/kyc/verify", async (req, res) => {
   try {
-    const { walletAddress, userInfo } = req.body;
+    const { walletAddress } = req.body;
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
     }
 
-    const result = await verifyKYC(walletAddress, userInfo);
-    res.json(result);
+    const result = await createVerificationSession(walletAddress);
+    res.json({
+      verificationUrl: result.url,
+      sessionId: result.session_id,
+    });
   } catch (error) {
     console.error("KYC verification error:", error);
-    res.status(500).json({ error: "Failed to verify KYC" });
+    res.status(500).json({ error: "Failed to create verification session", details: error.message });
+  }
+});
+
+/**
+ * @route GET /api/kyc/status/:sessionId
+ * @desc Check the verification status of a session
+ * @param {string} sessionId - The session ID to check
+ */
+app.get("/api/kyc/status/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Session ID is required" });
+    }
+
+    const status = await checkVerificationStatus(sessionId);
+    res.json({ status });
+  } catch (error) {
+    console.error("KYC status check error:", error);
+    res.status(500).json({ error: "Failed to check verification status", details: error.message });
   }
 });
 
