@@ -192,6 +192,28 @@ let program;
 function startServer() {
 
 // ===============================================
+// --- HELPER FUNCTIONS ---
+// ===============================================
+
+/**
+ * Helper function to derive the delegation PDA address
+ * @param {PublicKey} ownerPubkey - The owner's public key
+ * @param {PublicKey} tokenMintPubkey - The token mint public key
+ * @returns {PublicKey} The delegation PDA address
+ */
+function getDelegationPDA(ownerPubkey, tokenMintPubkey) {
+  const [delegationPDA] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("delegation"),
+      ownerPubkey.toBuffer(),
+      tokenMintPubkey.toBuffer(),
+    ],
+    program.programId
+  );
+  return delegationPDA;
+}
+
+// ===============================================
 // --- ADMIN SECURITY MIDDLEWARE ---
 // ===============================================
 
@@ -765,6 +787,196 @@ app.post("/api/user/cast-vote", async (req, res) => {
   } catch (error) {
     console.error("Failed to cast vote:", error);
     res.status(500).json({ error: "Failed to cast vote", details: error.message });
+  }
+});
+
+// ===============================================
+// --- DELEGATION ENDPOINTS ---
+// ===============================================
+
+/**
+ * @route POST /api/user/delegate
+ * @desc Set or update a delegate for voting rights
+ * @body { "ownerWallet": "...", "delegateWallet": "..." }
+ */
+app.post("/api/user/delegate", async (req, res) => {
+  try {
+    const { ownerWallet, delegateWallet } = req.body;
+    if (!ownerWallet || !delegateWallet) {
+      return res.status(400).json({
+        error: "ownerWallet and delegateWallet are required",
+      });
+    }
+
+    const ownerPubkey = new PublicKey(ownerWallet);
+    const delegatePubkey = new PublicKey(delegateWallet);
+
+    // Derive the delegation PDA
+    const delegationPDA = getDelegationPDA(ownerPubkey, shareTokenMint);
+
+    // Build the transaction
+    const tx = await program.methods
+      .setDelegate(delegatePubkey)
+      .accounts({
+        delegation: delegationPDA,
+        authority: ownerPubkey,
+        mint: shareTokenMint,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+
+    res.json({
+      message: "Transaction prepared. User must sign from frontend.",
+      transaction: tx,
+      delegationPDA: delegationPDA.toBase58(),
+    });
+  } catch (error) {
+    console.error("Failed to set delegate:", error);
+    res.status(500).json({ error: "Failed to set delegate", details: error.message });
+  }
+});
+
+/**
+ * @route POST /api/user/cast-proxy-vote
+ * @desc Cast a proxy vote on behalf of an owner
+ * @body { "voteAccount": "...", "voteDirection": boolean, "delegateWallet": "...", "ownerWallet": "..." }
+ */
+app.post("/api/user/cast-proxy-vote", async (req, res) => {
+  try {
+    const { voteAccount, voteDirection, delegateWallet, ownerWallet } = req.body;
+    if (!voteAccount || voteDirection === undefined || !delegateWallet || !ownerWallet) {
+      return res.status(400).json({
+        error: "voteAccount, voteDirection, delegateWallet, and ownerWallet are required",
+      });
+    }
+
+    const voteAccountPubkey = new PublicKey(voteAccount);
+    const delegatePubkey = new PublicKey(delegateWallet);
+    const ownerPubkey = new PublicKey(ownerWallet);
+
+    // Derive delegationRecord PDA using Owner's wallet and shareTokenMint
+    const delegationRecordPDA = getDelegationPDA(ownerPubkey, shareTokenMint);
+
+    // Derive voteReceipt PDA using Owner's wallet (not delegate's) and voteAccount
+    const [voteReceiptPDA] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("receipt"),
+        voteAccountPubkey.toBuffer(),
+        ownerPubkey.toBuffer(),
+      ],
+      program.programId
+    );
+
+    // Get Owner's token account
+    const ownerTokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      authorityWallet,
+      shareTokenMint,
+      ownerPubkey
+    );
+
+    // Build the transaction
+    const tx = await program.methods
+      .castProxyVote(voteDirection)
+      .accounts({
+        voteAccount: voteAccountPubkey,
+        delegationRecord: delegationRecordPDA,
+        ownerTokenAccount: ownerTokenAccount.address,
+        delegate: delegatePubkey,
+        voteReceipt: voteReceiptPDA,
+        tokenMint: shareTokenMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+
+    res.json({
+      message: "Transaction prepared. Delegate must sign from frontend.",
+      transaction: tx,
+      voteReceipt: voteReceiptPDA.toBase58(),
+    });
+  } catch (error) {
+    console.error("Failed to cast proxy vote:", error);
+    res.status(500).json({ error: "Failed to cast proxy vote", details: error.message });
+  }
+});
+
+/**
+ * @route GET /api/user/delegation/:walletAddress
+ * @desc Get delegation status for a wallet
+ * @param {string} walletAddress - The wallet address to check
+ */
+app.get("/api/user/delegation/:walletAddress", async (req, res) => {
+  try {
+    const { walletAddress } = req.params;
+    if (!walletAddress) {
+      return res.status(400).json({ error: "walletAddress is required" });
+    }
+
+    const ownerPubkey = new PublicKey(walletAddress);
+
+    // Derive delegation PDA for this wallet
+    const delegationPDA = getDelegationPDA(ownerPubkey, shareTokenMint);
+
+    try {
+      // Try to fetch the delegation account
+      const delegationAccount = await program.account.delegation.fetch(delegationPDA);
+      
+      res.json({
+        isDelegating: true,
+        delegate: delegationAccount.delegate.toBase58(),
+        owner: delegationAccount.owner.toBase58(),
+        mint: delegationAccount.mint.toBase58(),
+      });
+    } catch (fetchError) {
+      // Account doesn't exist, so no delegation
+      res.json({
+        isDelegating: false,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to get delegation status:", error);
+    res.status(500).json({ error: "Failed to get delegation status", details: error.message });
+  }
+});
+
+/**
+ * @route POST /api/user/revoke-delegate
+ * @desc Revoke delegation and close the delegation account
+ * @body { "ownerWallet": "..." }
+ */
+app.post("/api/user/revoke-delegate", async (req, res) => {
+  try {
+    const { ownerWallet } = req.body;
+    if (!ownerWallet) {
+      return res.status(400).json({
+        error: "ownerWallet is required",
+      });
+    }
+
+    const ownerPubkey = new PublicKey(ownerWallet);
+
+    // Derive the delegation PDA
+    const delegationPDA = getDelegationPDA(ownerPubkey, shareTokenMint);
+
+    // Build the transaction
+    const tx = await program.methods
+      .revokeDelegation()
+      .accounts({
+        delegation: delegationPDA,
+        authority: ownerPubkey,
+        mint: shareTokenMint,
+      })
+      .transaction();
+
+    res.json({
+      message: "Transaction prepared. User must sign from frontend.",
+      transaction: tx,
+      delegationPDA: delegationPDA.toBase58(),
+    });
+  } catch (error) {
+    console.error("Failed to revoke delegation:", error);
+    res.status(500).json({ error: "Failed to revoke delegation", details: error.message });
   }
 });
 
