@@ -6,7 +6,7 @@ This document describes the testing approach, standards, and procedures for the 
 
 ### Smart Contract Tests (Anchor)
 
-**Location:** `voting_contract/tests/`
+**Location:** `voting_contract/tests/voting-contract.ts`
 
 **Running Tests:**
 ```bash

@@ -55,10 +55,11 @@ BadgerBuild/
 │
 ├── voting_contract/                # Solana smart contract (Anchor/Rust)
 │   ├── programs/
-│   │   └── voting-contract/
+│   │   └── voting-contract/       # Program directory (hyphenated)
 │   │       └── src/
 │   │           └── lib.rs          # Main smart contract program
 │   ├── tests/                      # Anchor test suite
+│   │   └── voting-contract.ts      # Main test file
 │   ├── Anchor.toml                 # Anchor configuration
 │   ├── Cargo.toml                  # Rust workspace configuration
 │   └── target/                     # Build artifacts (not in git)
