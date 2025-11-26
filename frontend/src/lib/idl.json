@@ -1,0 +1,266 @@
+{
+  "accounts": [
+    {
+      "discriminator": [
+        203,
+        238,
+        154,
+        106,
+        200,
+        131,
+        0,
+        41
+      ],
+      "name": "VoteAccount"
+    },
+    {
+      "discriminator": [
+        104,
+        20,
+        204,
+        252,
+        45,
+        84,
+        37,
+        195
+      ],
+      "name": "VoteReceipt"
+    }
+  ],
+  "address": "5XvTMWXU2qiWADQgC9b592hEctu3EcfRzeVKTAnzrQV4",
+  "errors": [
+    {
+      "code": 6000,
+      "msg": "Voting is already closed for this proposal.",
+      "name": "VoteIsClosed"
+    },
+    {
+      "code": 6001,
+      "msg": "The token mint provided does not match the one required for this vote.",
+      "name": "InvalidTokenMint"
+    }
+  ],
+  "instructions": [
+    {
+      "accounts": [
+        {
+          "name": "vote_account",
+          "writable": true
+        },
+        {
+          "name": "vote_receipt",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vote_account"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          },
+          "writable": true
+        },
+        {
+          "name": "voter",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "name": "voter_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_mint",
+          "writable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "name": "token_program"
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "vote_direction",
+          "type": "bool"
+        }
+      ],
+      "discriminator": [
+        20,
+        212,
+        15,
+        189,
+        69,
+        180,
+        69,
+        151
+      ],
+      "docs": [
+        "Instruction 2: Casts a vote (for or against)",
+        "This is the main function for shareholders."
+      ],
+      "name": "cast_vote"
+    },
+    {
+      "accounts": [
+        {
+          "name": "vote_account",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "relations": [
+            "vote_account"
+          ],
+          "signer": true
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        137,
+        152,
+        87,
+        249,
+        170,
+        239,
+        133,
+        59
+      ],
+      "docs": [
+        "Instruction 3: (Optional) Close the vote",
+        "So no more votes can be cast."
+      ],
+      "name": "close_vote"
+    },
+    {
+      "accounts": [
+        {
+          "name": "vote_account",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        }
+      ],
+      "discriminator": [
+        71,
+        196,
+        78,
+        199,
+        191,
+        162,
+        80,
+        238
+      ],
+      "docs": [
+        "Instruction 1: Creates a new \"Ballot Box\" (VoteAccount)",
+        "Only the 'authority' (our backend) can call this."
+      ],
+      "name": "initialize_vote"
+    }
+  ],
+  "metadata": {
+    "description": "Created with Anchor",
+    "name": "voting_contract",
+    "spec": "0.1.0",
+    "version": "0.1.0"
+  },
+  "types": [
+    {
+      "docs": [
+        "Account 1: The \"Ballot Box\" (VoteAccount)",
+        "Stores all the info about a single proposal."
+      ],
+      "name": "VoteAccount",
+      "type": {
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "votes_for",
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Account 2: The \"I Voted\" Stub (VoteReceipt)",
+        "This is a PDA (Program Derived Address) linked to the voter",
+        "and the vote, which stops them from voting twice."
+      ],
+      "name": "VoteReceipt",
+      "type": {
+        "fields": [
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "voted_for",
+            "type": "bool"
+          }
+        ],
+        "kind": "struct"
+      }
+    }
+  ]
+}

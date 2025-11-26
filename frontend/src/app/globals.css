@@ -1,0 +1,305 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-cabinet);
+  --font-mono: var(--font-jetbrains-mono);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+:root {
+  /* Isometric Governance Palette (Logo-Aligned) */
+
+  /* Foundation Colors */
+  --background: #F5F1E8;        /* Soft Cream (matches logo background) */
+  --foreground: #2A2A2A;        /* Deep Charcoal (softer than pure black) */
+
+  /* Sphere-Inspired Accent Colors (from logo) */
+  --slate-blue: #5B7C99;        /* Primary actions, links */
+  --sage-green: #7A9D7A;        /* Success, verified, approved */
+  --dusty-rose: #C49991;        /* Warnings, pending */
+  --warm-amber: #D4A373;        /* Highlights, hover states */
+  --soft-charcoal: #3D3D3D;     /* Borders, dividers */
+
+  /* Active/Interactive */
+  --electric-cyan: #06B6D4;     /* CTAs, active votes (matches logo glow) */
+  --cyan-glow: rgba(6, 182, 212, 0.4);
+
+  /* Grays */
+  --warm-gray: #6B6B6B;         /* Secondary text */
+  --light-gray: #E5E5E5;        /* Borders, dividers */
+  --off-white: #FFFFFF;         /* Cards, elevated elements */
+
+  /* Card System */
+  --card: #FFFFFF;              /* Pure white cards */
+  --card-foreground: #2A2A2A;   /* Card text */
+
+  /* Component Colors */
+  --primary: #06B6D4;           /* Electric Cyan */
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #5B7C99;         /* Slate Blue */
+  --secondary-foreground: #FFFFFF;
+
+  --accent: #06B6D4;            /* Electric Cyan */
+  --accent-foreground: #FFFFFF;
+
+  --muted: #F5F1E8;             /* Soft Cream */
+  --muted-foreground: #6B6B6B;  /* Warm Gray */
+
+  --destructive: #D97979;       /* Muted Red */
+  --destructive-foreground: #FFFFFF;
+
+  /* Functional Colors */
+  --success: #7A9D7A;           /* Sage Green */
+  --warning: #D4A373;           /* Warm Amber */
+  --error: #D97979;             /* Muted Red */
+  --info: #5B7C99;              /* Slate Blue */
+
+  /* UI Elements */
+  --border: #E5E5E5;            /* Light Gray */
+  --input: #E5E5E5;             /* Light Gray */
+  --ring: #06B6D4;              /* Electric Cyan */
+
+  /* Border Radius */
+  --radius: 6px;
+
+  /* Shadows (Minimal) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-cyan-glow: 0 0 20px rgba(6, 182, 212, 0.4);
+}
+
+.dark {
+  --background: #1A1A1A;        /* Deep Charcoal */
+  --foreground: #F5F1E8;        /* Soft Cream */
+
+  --card: #2A2A2A;              /* Darker Charcoal */
+  --card-foreground: #F5F1E8;
+
+  --primary: #06B6D4;           /* Electric Cyan (unchanged) */
+  --primary-foreground: #1A1A1A;
+
+  --secondary: #5B7C99;         /* Slate Blue (unchanged) */
+  --secondary-foreground: #F5F1E8;
+
+  --muted: #3D3D3D;             /* Soft Charcoal */
+  --muted-foreground: #6B6B6B;
+
+  --border: #3D3D3D;
+  --input: #3D3D3D;
+
+  --accent: #06B6D4;
+  --accent-foreground: #1A1A1A;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+  }
+}
+
+@layer utilities {
+  /* Typography Utilities */
+  .font-mono {
+    font-family: var(--font-mono), 'JetBrains Mono', monospace;
+    font-feature-settings: "calt" 1, "liga" 1;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Isometric Grid Background Pattern */
+  .isometric-grid-bg {
+    background-image:
+      repeating-linear-gradient(
+        30deg,
+        transparent,
+        transparent 35px,
+        rgba(42, 42, 42, 0.03) 35px,
+        rgba(42, 42, 42, 0.03) 36px
+      ),
+      repeating-linear-gradient(
+        -30deg,
+        transparent,
+        transparent 35px,
+        rgba(42, 42, 42, 0.03) 35px,
+        rgba(42, 42, 42, 0.03) 36px
+      );
+  }
+
+  /* Sphere Indicator (for vote tallies, status markers) */
+  .sphere-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .sphere-indicator.sage {
+    background: var(--sage-green);
+  }
+
+  .sphere-indicator.rose {
+    background: var(--dusty-rose);
+  }
+
+  .sphere-indicator.amber {
+    background: var(--warm-amber);
+  }
+
+  .sphere-indicator.cyan {
+    background: var(--electric-cyan);
+    box-shadow: 0 0 8px var(--cyan-glow);
+  }
+
+  .sphere-indicator.slate {
+    background: var(--slate-blue);
+  }
+
+  /* Glow Effect (for active elements) */
+  .glow-cyan {
+    box-shadow: var(--shadow-cyan-glow);
+  }
+
+  /* Card Hover Effect */
+  .card-hover {
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-hover:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+    border-color: var(--electric-cyan);
+  }
+
+  /* Smooth Transitions */
+  .smooth-transition {
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+/* Custom Scrollbar (subtle) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--light-gray);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--warm-gray);
+}
+
+/* Focus Styles (Accessibility) */
+*:focus-visible {
+  outline: 2px solid var(--electric-cyan);
+  outline-offset: 2px;
+}
+
+/* Responsive Typography Scale */
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 1440px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+/* Animations */
+@keyframes sphere-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--cyan-glow);
+  }
+  50% {
+    box-shadow: 0 0 20px var(--cyan-glow);
+  }
+}
+
+.animate-sphere-pulse {
+  animation: sphere-pulse 1.5s ease-in-out infinite;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
